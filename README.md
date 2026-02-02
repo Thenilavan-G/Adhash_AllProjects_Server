@@ -9,6 +9,26 @@ This project uses Playwright to check if a server is active and sends email aler
 🔄 Continuous monitoring mode
 ⚡ Fast checks without browser overhead
 
+## 🚀 Automated Monitoring (Choose One)
+
+You have **two options** for automated daily monitoring at 4:00 PM IST:
+
+### Option 1: GitHub Actions (RECOMMENDED) ⭐
+- ✅ Cloud-based - runs even if computer is off
+- ✅ No admin rights needed
+- ✅ Easy to manage from GitHub UI
+- 📖 See `GITHUB_ACTIONS_SETUP.md` for setup
+
+### Option 2: Windows Task Scheduler
+- ✅ Local control
+- ⚠️ Requires computer to be on at 4 PM
+- ⚠️ Requires admin rights
+- 📖 See `SCHEDULED_TASK_SETUP.md` for setup
+
+**Full comparison:** See `DEPLOYMENT_OPTIONS.md`
+
+---
+
 ## Setup
 
 1. **Install dependencies:**

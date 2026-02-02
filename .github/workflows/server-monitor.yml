@@ -1,0 +1,59 @@
+name: Server Health Monitor
+
+on:
+  # Schedule to run at 4:00 PM IST (10:30 AM UTC) every day
+  schedule:
+    - cron: '30 10 * * *'  # 10:30 AM UTC = 4:00 PM IST
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  monitor-servers:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install Playwright
+        run: npx playwright install chromium --with-deps
+      
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          EMAIL_SERVICE=Zoho
+          EMAIL_HOST=smtp.zoho.com
+          EMAIL_PORT=465
+          EMAIL_SECURE=true
+          EMAIL_USER=${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO=${{ secrets.EMAIL_TO }}
+          SERVER_URLS=${{ secrets.SERVER_URLS }}
+          CHECK_INTERVAL_MINUTES=5
+          EOF
+      
+      - name: Run server health check
+        run: npm run check-multiple
+        env:
+          NODE_ENV: production
+      
+      - name: Upload logs (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-logs-${{ github.run_number }}
+          path: |
+            *.log
+          retention-days: 7
+          if-no-files-found: ignore
+
