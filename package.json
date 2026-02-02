@@ -1,0 +1,30 @@
+{
+  "name": "server-health-check",
+  "version": "1.0.0",
+  "description": "Playwright script to check server health",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "check-server": "npx ts-node checkServer.ts",
+    "check-server-simple": "npx ts-node checkServerSimple.ts",
+    "check-with-email": "npx ts-node checkServerWithEmail.ts",
+    "check-multiple": "npx ts-node checkMultipleServers.ts",
+    "monitor": "npx ts-node monitorServer.ts",
+    "monitor-multiple": "npx ts-node monitorMultipleServers.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "nodemailer": "^6.9.7",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.10.0",
+    "@types/nodemailer": "^6.4.14",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0"
+  }
+}
+
