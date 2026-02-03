@@ -18,12 +18,43 @@ interface EmailConfig {
 
 interface ServerStatus {
   url: string;
+  name?: string;
   isActive: boolean;
   statusCode?: number;
   statusText?: string;
   responseTime?: number;
   error?: string;
   timestamp: Date;
+}
+
+function extractServerName(url: string): string {
+  // Special cases for IP addresses
+  if (url.includes('20.62.109.239')) return 'Partsouq';
+  if (url.includes('20.15.121.70')) return 'Manual Search';
+  if (url.includes('20.7.146.191')) return 'Auto Search';
+
+  // Extract domain name from URL
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname;
+
+    // Remove www. if present
+    const cleanHostname = hostname.replace(/^www\./, '');
+
+    // Extract the main domain name (before .com, .app, .io, etc.)
+    const parts = cleanHostname.split('.');
+
+    // If subdomain exists (like superadmin.wavedin.app), get the second-to-last part
+    if (parts.length >= 3) {
+      return parts[parts.length - 2]; // Get 'wavedin' from 'superadmin.wavedin.app'
+    } else if (parts.length === 2) {
+      return parts[0]; // Get 'example' from 'example.com'
+    }
+
+    return cleanHostname;
+  } catch (error) {
+    return 'Unknown';
+  }
 }
 
 function generateModernHTMLReport(statuses: ServerStatus[]): string {
@@ -42,9 +73,16 @@ function generateModernHTMLReport(statuses: ServerStatus[]): string {
       <div class="server-card ${statusLabel.toLowerCase()}">
         <div class="server-header">
           <span class="server-icon">${icon}</span>
-          <span class="server-url">${s.url}</span>
+          <div class="server-info">
+            <div class="server-name">${s.name || 'Unknown'}</div>
+            <div class="server-url">${s.url}</div>
+          </div>
         </div>
         <div class="server-details">
+          <div class="detail-item">
+            <span class="detail-label">Name:</span>
+            <span class="detail-value" style="font-weight: bold; color: #333;">${s.name || 'Unknown'}</span>
+          </div>
           <div class="detail-item">
             <span class="detail-label">Status:</span>
             <span class="detail-value" style="color: ${statusColor}; font-weight: bold;">${statusLabel}</span>
@@ -81,7 +119,7 @@ function generateModernHTMLReport(statuses: ServerStatus[]): string {
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #FFD6A5 0%, #CAFFBF 100%);
       padding: 20px;
       min-height: 100vh;
     }
@@ -206,22 +244,35 @@ function generateModernHTMLReport(statuses: ServerStatus[]): string {
 
     .server-header {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      align-items: flex-start;
+      gap: 15px;
       margin-bottom: 15px;
       padding-bottom: 15px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 2px solid #e0e0e0;
     }
 
     .server-icon {
-      font-size: 1.5em;
+      font-size: 2em;
+      flex-shrink: 0;
+    }
+
+    .server-info {
+      flex: 1;
+    }
+
+    .server-name {
+      font-size: 1.3em;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 5px;
+      text-transform: capitalize;
     }
 
     .server-url {
-      font-weight: 600;
-      color: #333;
+      font-size: 0.85em;
+      color: #666;
       word-break: break-all;
-      flex: 1;
+      font-family: 'Courier New', monospace;
     }
 
     .server-details {
@@ -330,7 +381,7 @@ function generateModernHTMLReport(statuses: ServerStatus[]): string {
         <div style="color: #666; font-size: 0.9em;">Not Responding</div>
       </div>
 
-      <div class="summary-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+      <div class="summary-card" style="background: linear-gradient(135deg, #A8DADC 0%, #457B9D 100%); color: white;">
         <div class="icon">🖥️</div>
         <div class="label" style="color: white; opacity: 0.9;">Total Servers</div>
         <div class="count" style="color: white;">${statuses.length}</div>
@@ -564,6 +615,7 @@ async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[
 
 async function checkServerHealth(url: string): Promise<ServerStatus> {
   const context = await request.newContext();
+  const serverName = extractServerName(url);
 
   try {
     const startTime = Date.now();
@@ -582,6 +634,7 @@ async function checkServerHealth(url: string): Promise<ServerStatus> {
 
     return {
       url,
+      name: serverName,
       isActive: true,
       statusCode: status,
       statusText: statusText,
@@ -594,6 +647,7 @@ async function checkServerHealth(url: string): Promise<ServerStatus> {
 
     return {
       url,
+      name: serverName,
       isActive: false,
       error: error.message,
       timestamp: new Date()
