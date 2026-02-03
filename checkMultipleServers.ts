@@ -1,6 +1,8 @@
 import { request } from '@playwright/test';
 import nodemailer from 'nodemailer';
 import * as dotenv from 'dotenv';
+import * as fs from 'fs';
+import * as path from 'path';
 
 dotenv.config();
 
@@ -22,6 +24,360 @@ interface ServerStatus {
   responseTime?: number;
   error?: string;
   timestamp: Date;
+}
+
+function generateModernHTMLReport(statuses: ServerStatus[]): string {
+  const downServers = statuses.filter(s => !s.isActive);
+  const unhealthyServers = statuses.filter(s => s.isActive && s.statusCode && s.statusCode >= 400);
+  const healthyServers = statuses.filter(s => s.isActive && s.statusCode && s.statusCode < 400);
+  const hasIssues = downServers.length > 0 || unhealthyServers.length > 0;
+  const timestamp = new Date().toLocaleString('en-US', {
+    timeZone: 'Asia/Kolkata',
+    dateStyle: 'full',
+    timeStyle: 'long'
+  });
+
+  const generateServerCards = (servers: ServerStatus[], statusColor: string, statusLabel: string, icon: string) => {
+    return servers.map(s => `
+      <div class="server-card ${statusLabel.toLowerCase()}">
+        <div class="server-header">
+          <span class="server-icon">${icon}</span>
+          <span class="server-url">${s.url}</span>
+        </div>
+        <div class="server-details">
+          <div class="detail-item">
+            <span class="detail-label">Status:</span>
+            <span class="detail-value" style="color: ${statusColor}; font-weight: bold;">${statusLabel}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Response:</span>
+            <span class="detail-value">${s.isActive ? `${s.statusCode} ${s.statusText}` : s.error || 'No response'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Response Time:</span>
+            <span class="detail-value">${s.responseTime ? `${s.responseTime}ms` : 'N/A'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Checked:</span>
+            <span class="detail-value">${s.timestamp.toLocaleTimeString()}</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  };
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Health Report - ${new Date().toLocaleDateString()}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+
+    .header {
+      background: ${hasIssues ? 'linear-gradient(135deg, #f44336 0%, #e91e63 100%)' : 'linear-gradient(135deg, #4caf50 0%, #8bc34a 100%)'};
+      color: white;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .header .subtitle {
+      font-size: 1.1em;
+      opacity: 0.95;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      padding: 40px;
+      background: #f8f9fa;
+    }
+
+    .summary-card {
+      background: white;
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      text-align: center;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .summary-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 8px 12px rgba(0,0,0,0.15);
+    }
+
+    .summary-card .icon {
+      font-size: 3em;
+      margin-bottom: 15px;
+    }
+
+    .summary-card .label {
+      font-size: 0.9em;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+
+    .summary-card .count {
+      font-size: 3em;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .summary-card.healthy .count { color: #4caf50; }
+    .summary-card.unhealthy .count { color: #ff9800; }
+    .summary-card.down .count { color: #f44336; }
+
+    .content {
+      padding: 40px;
+    }
+
+    .section {
+      margin-bottom: 40px;
+    }
+
+    .section-title {
+      font-size: 1.8em;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 3px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-title.healthy { border-color: #4caf50; color: #4caf50; }
+    .section-title.unhealthy { border-color: #ff9800; color: #ff9800; }
+    .section-title.down { border-color: #f44336; color: #f44336; }
+
+    .servers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 20px;
+    }
+
+    .server-card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-left: 5px solid;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .server-card:hover {
+      transform: translateX(5px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .server-card.active { border-color: #4caf50; }
+    .server-card.unhealthy { border-color: #ff9800; }
+    .server-card.inactive { border-color: #f44336; }
+
+    .server-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .server-icon {
+      font-size: 1.5em;
+    }
+
+    .server-url {
+      font-weight: 600;
+      color: #333;
+      word-break: break-all;
+      flex: 1;
+    }
+
+    .server-details {
+      display: grid;
+      gap: 10px;
+    }
+
+    .detail-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+
+    .detail-label {
+      color: #666;
+      font-size: 0.9em;
+    }
+
+    .detail-value {
+      color: #333;
+      font-weight: 500;
+    }
+
+    .footer {
+      background: #2c3e50;
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .footer p {
+      margin: 5px 0;
+      opacity: 0.9;
+    }
+
+    .timestamp {
+      background: #ecf0f1;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      text-align: center;
+      font-size: 0.95em;
+      color: #555;
+    }
+
+    @media (max-width: 768px) {
+      .servers-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .header h1 {
+        font-size: 1.8em;
+      }
+
+      .summary {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+
+      .container {
+        box-shadow: none;
+      }
+
+      .server-card:hover {
+        transform: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${hasIssues ? '🚨 Server Status Alert' : '✅ Server Health Report'}</h1>
+      <p class="subtitle">Automated Server Monitoring System</p>
+    </div>
+
+    <div class="timestamp">
+      <strong>📅 Report Generated:</strong> ${timestamp}
+    </div>
+
+    <div class="summary">
+      <div class="summary-card healthy">
+        <div class="icon">✅</div>
+        <div class="label">Healthy Servers</div>
+        <div class="count">${healthyServers.length}</div>
+        <div style="color: #666; font-size: 0.9em;">Working Perfectly</div>
+      </div>
+
+      <div class="summary-card unhealthy">
+        <div class="icon">⚠️</div>
+        <div class="label">Unhealthy Servers</div>
+        <div class="count">${unhealthyServers.length}</div>
+        <div style="color: #666; font-size: 0.9em;">Active but Errors</div>
+      </div>
+
+      <div class="summary-card down">
+        <div class="icon">🚨</div>
+        <div class="label">Down Servers</div>
+        <div class="count">${downServers.length}</div>
+        <div style="color: #666; font-size: 0.9em;">Not Responding</div>
+      </div>
+
+      <div class="summary-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <div class="icon">🖥️</div>
+        <div class="label" style="color: white; opacity: 0.9;">Total Servers</div>
+        <div class="count" style="color: white;">${statuses.length}</div>
+        <div style="opacity: 0.9; font-size: 0.9em;">Being Monitored</div>
+      </div>
+    </div>
+
+    <div class="content">
+      ${downServers.length > 0 ? `
+      <div class="section">
+        <h2 class="section-title down">🚨 Down/Inactive Servers (${downServers.length})</h2>
+        <div class="servers-grid">
+          ${generateServerCards(downServers, '#f44336', 'INACTIVE', '🚨')}
+        </div>
+      </div>
+      ` : ''}
+
+      ${unhealthyServers.length > 0 ? `
+      <div class="section">
+        <h2 class="section-title unhealthy">⚠️ Unhealthy Servers (${unhealthyServers.length})</h2>
+        <div class="servers-grid">
+          ${generateServerCards(unhealthyServers, '#ff9800', 'ACTIVE', '⚠️')}
+        </div>
+      </div>
+      ` : ''}
+
+      ${healthyServers.length > 0 ? `
+      <div class="section">
+        <h2 class="section-title healthy">✅ Healthy Servers (${healthyServers.length})</h2>
+        <div class="servers-grid">
+          ${generateServerCards(healthyServers, '#4caf50', 'ACTIVE', '✅')}
+        </div>
+      </div>
+      ` : ''}
+    </div>
+
+    <div class="footer">
+      <p><strong>Adhash Technologies - Server Monitoring System</strong></p>
+      <p>This is an automated report generated by the Server Health Monitor</p>
+      <p>Monitoring ${statuses.length} server(s) • Report ID: ${Date.now()}</p>
+      <p style="margin-top: 15px; font-size: 0.9em;">
+        For questions or issues, contact: <a href="mailto:qateam@adhashtech.com" style="color: #3498db;">qateam@adhashtech.com</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
 async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[]) {
@@ -166,16 +522,39 @@ async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[
     </html>
   `;
 
+  // Generate modern HTML report
+  const modernReport = generateModernHTMLReport(statuses);
+  const reportFileName = `server-health-report-${new Date().toISOString().split('T')[0]}.html`;
+  const reportPath = path.join(process.cwd(), 'reports', reportFileName);
+
+  // Create reports directory if it doesn't exist
+  const reportsDir = path.join(process.cwd(), 'reports');
+  if (!fs.existsSync(reportsDir)) {
+    fs.mkdirSync(reportsDir, { recursive: true });
+  }
+
+  // Save the HTML report to file
+  fs.writeFileSync(reportPath, modernReport, 'utf-8');
+  console.log(`   📄 HTML report saved: ${reportPath}`);
+
   const mailOptions = {
     from: config.user,
     to: config.to,
     subject: subject,
     html: htmlContent,
+    attachments: [
+      {
+        filename: reportFileName,
+        path: reportPath,
+        contentType: 'text/html'
+      }
+    ]
   };
 
   try {
     await transporter.sendMail(mailOptions);
     console.log(`   📧 Email alert sent to: ${config.to}`);
+    console.log(`   📎 Attached: ${reportFileName}`);
     return true;
   } catch (error: any) {
     console.log(`   ❌ Failed to send email: ${error.message}`);
