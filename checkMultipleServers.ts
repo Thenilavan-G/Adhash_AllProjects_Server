@@ -613,9 +613,21 @@ async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[
   }
 }
 
-async function checkServerHealth(url: string): Promise<ServerStatus> {
+async function checkServerHealth(urlWithName: string): Promise<ServerStatus> {
   const context = await request.newContext();
-  const serverName = extractServerName(url);
+
+  // Support format: URL|Name or just URL
+  let url: string;
+  let serverName: string;
+
+  if (urlWithName.includes('|')) {
+    const parts = urlWithName.split('|');
+    url = parts[0].trim();
+    serverName = parts[1].trim();
+  } else {
+    url = urlWithName.trim();
+    serverName = extractServerName(url);
+  }
 
   try {
     const startTime = Date.now();
@@ -669,15 +681,17 @@ async function main() {
   const serverUrlsString = process.env.SERVER_URLS || 'http://20.7.146.191:3000/';
   const serverUrls = serverUrlsString.split(',').map(url => url.trim());
 
-  if (!emailConfig.user || !emailConfig.password || !emailConfig.to) {
-    console.error('❌ Error: Email configuration is missing!');
-    console.error('Please create a .env file with EMAIL_USER, EMAIL_PASSWORD, and EMAIL_TO');
-    process.exit(1);
-  }
+  const hasEmailConfig = !!(emailConfig.user && emailConfig.password && emailConfig.to);
 
-  console.log('📧 Email Configuration:');
-  console.log(`   From: ${emailConfig.user}`);
-  console.log(`   To: ${emailConfig.to}`);
+  if (!hasEmailConfig) {
+    console.warn('⚠️  Warning: Email configuration is missing!');
+    console.warn('   Email notifications will be skipped, but HTML report will still be generated.');
+    console.warn('   To enable email, set EMAIL_USER, EMAIL_PASSWORD, and EMAIL_TO environment variables.');
+  } else {
+    console.log('📧 Email Configuration:');
+    console.log(`   From: ${emailConfig.user}`);
+    console.log(`   To: ${emailConfig.to}`);
+  }
   console.log(`   SMTP: ${emailConfig.host || emailConfig.service}`);
   console.log('');
   console.log(`🔍 Checking ${serverUrls.length} server(s)...\n`);
@@ -711,14 +725,21 @@ async function main() {
   console.log(`   🚨 Down: ${down}`);
   console.log('');
 
-  console.log('📧 Sending email report...');
-  const emailSent = await sendMultiServerEmail(emailConfig, statuses);
+  // Send email only if configuration is available
+  if (hasEmailConfig) {
+    console.log('📧 Sending email report...');
+    const emailSent = await sendMultiServerEmail(emailConfig, statuses);
 
-  if (emailSent) {
-    console.log('✨ Email sent successfully!\n');
+    if (emailSent) {
+      console.log('✨ Email sent successfully!\n');
+    } else {
+      console.log('❌ Failed to send email\n');
+    }
   } else {
-    console.log('❌ Failed to send email\n');
+    console.log('⚠️  Skipping email notification (no email configuration)\n');
   }
+
+  console.log('✅ Server health check complete!\n');
 }
 
 main();
