@@ -431,7 +431,7 @@ function generateModernHTMLReport(statuses: ServerStatus[]): string {
 </html>`;
 }
 
-async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[]) {
+async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[], reportPath: string, reportFileName: string) {
   const transportConfig: any = {
     auth: {
       user: config.user,
@@ -573,20 +573,8 @@ async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[
     </html>
   `;
 
-  // Generate modern HTML report
-  const modernReport = generateModernHTMLReport(statuses);
-  const reportFileName = `server-health-report-${new Date().toISOString().split('T')[0]}.html`;
-  const reportPath = path.join(process.cwd(), 'reports', reportFileName);
-
-  // Create reports directory if it doesn't exist
-  const reportsDir = path.join(process.cwd(), 'reports');
-  if (!fs.existsSync(reportsDir)) {
-    fs.mkdirSync(reportsDir, { recursive: true });
-  }
-
-  // Save the HTML report to file
-  fs.writeFileSync(reportPath, modernReport, 'utf-8');
-  console.log(`   📄 HTML report saved: ${reportPath}`);
+  // Report is already generated and saved by the caller
+  // Just use the provided reportPath and reportFileName for email attachment
 
   const mailOptions = {
     from: config.user,
@@ -725,10 +713,26 @@ async function main() {
   console.log(`   🚨 Down: ${down}`);
   console.log('');
 
+  // ALWAYS generate HTML report (regardless of email configuration)
+  console.log('📄 Generating HTML report...');
+  const modernReport = generateModernHTMLReport(statuses);
+  const reportFileName = `server-health-report-${new Date().toISOString().split('T')[0]}.html`;
+  const reportPath = path.join(process.cwd(), 'reports', reportFileName);
+
+  // Create reports directory if it doesn't exist
+  const reportsDir = path.join(process.cwd(), 'reports');
+  if (!fs.existsSync(reportsDir)) {
+    fs.mkdirSync(reportsDir, { recursive: true });
+  }
+
+  // Save the HTML report to file
+  fs.writeFileSync(reportPath, modernReport, 'utf-8');
+  console.log(`   ✅ HTML report saved: ${reportPath}`);
+
   // Send email only if configuration is available
   if (hasEmailConfig) {
     console.log('📧 Sending email report...');
-    const emailSent = await sendMultiServerEmail(emailConfig, statuses);
+    const emailSent = await sendMultiServerEmail(emailConfig, statuses, reportPath, reportFileName);
 
     if (emailSent) {
       console.log('✨ Email sent successfully!\n');
