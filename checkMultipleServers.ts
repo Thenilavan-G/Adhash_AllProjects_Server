@@ -804,17 +804,18 @@ async function main() {
   const sendOnlyOnChange = process.env.SEND_ONLY_ON_CHANGE === 'true';
 
   if (!emailConfig.user || !emailConfig.password || !emailConfig.to) {
-    console.error('❌ Error: Email configuration is missing!');
-    console.error('Please create a .env file with EMAIL_USER, EMAIL_PASSWORD, and EMAIL_TO');
-    process.exit(1);
+    console.warn('⚠️  Warning: Email configuration is missing!');
+    console.warn('   Email notifications will be disabled.');
+    console.warn('   To enable email alerts, create a .env file with EMAIL_USER, EMAIL_PASSWORD, and EMAIL_TO');
+    console.log('');
+  } else {
+    console.log('📧 Email Configuration:');
+    console.log(`   From: ${emailConfig.user}`);
+    console.log(`   To: ${emailConfig.to}`);
+    console.log(`   SMTP: ${emailConfig.host || emailConfig.service}`);
+    console.log(`   Mode: ${sendOnlyOnChange ? 'Send only on status change' : 'Send every check'}`);
+    console.log('');
   }
-
-  console.log('📧 Email Configuration:');
-  console.log(`   From: ${emailConfig.user}`);
-  console.log(`   To: ${emailConfig.to}`);
-  console.log(`   SMTP: ${emailConfig.host || emailConfig.service}`);
-  console.log(`   Mode: ${sendOnlyOnChange ? 'Send only on status change' : 'Send every check'}`);
-  console.log('');
 
   // Load previous status
   const previousStatusMap = loadPreviousStatus();
