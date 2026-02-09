@@ -1,10 +1,10 @@
 name: Server Health Monitor
 
 on:
-  # Schedule to run at 4:00 PM IST (10:30 AM UTC) every day
+  # Schedule to run every 1 hour, every day
   schedule:
-    - cron: '30 10 * * *'  # 10:30 AM UTC = 4:00 PM IST
-  
+    - cron: '0 * * * *'  # Every hour at minute 0
+
   # Allow manual trigger
   workflow_dispatch:
 
@@ -15,19 +15,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Install Playwright
         run: npx playwright install chromium --with-deps
-      
+
+      - name: Download previous status
+        uses: actions/cache@v4
+        with:
+          path: previous-status.json
+          key: server-status-${{ github.run_id }}
+          restore-keys: |
+            server-status-
+
       - name: Create .env file
         run: |
           cat > .env << EOF
@@ -39,9 +47,10 @@ jobs:
           EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO=${{ secrets.EMAIL_TO }}
           SERVER_URLS=${{ secrets.SERVER_URLS }}
-          CHECK_INTERVAL_MINUTES=5
+          CHECK_INTERVAL_MINUTES=60
+          SEND_ONLY_ON_CHANGE=true
           EOF
-      
+
       - name: Run server health check
         run: npm run check-multiple
         env:

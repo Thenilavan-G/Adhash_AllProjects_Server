@@ -27,6 +27,20 @@ interface ServerStatus {
   timestamp: Date;
 }
 
+interface StatusChange {
+  url: string;
+  name: string;
+  previousStatus: string;
+  currentStatus: string;
+  changeType: 'improved' | 'degraded' | 'critical';
+}
+
+interface PreviousStatus {
+  url: string;
+  status: 'healthy' | 'unhealthy' | 'down';
+  timestamp: string;
+}
+
 function extractServerName(url: string): string {
   // Special cases for IP addresses
   if (url.includes('20.62.109.239')) return 'Partsouq';
@@ -55,6 +69,91 @@ function extractServerName(url: string): string {
   } catch (error) {
     return 'Unknown';
   }
+}
+
+function getServerStatusType(server: ServerStatus): 'healthy' | 'unhealthy' | 'down' {
+  if (!server.isActive) return 'down';
+  if (server.statusCode && server.statusCode >= 400) return 'unhealthy';
+  return 'healthy';
+}
+
+function loadPreviousStatus(): Map<string, PreviousStatus> {
+  const statusFile = 'previous-status.json';
+  const statusMap = new Map<string, PreviousStatus>();
+
+  try {
+    if (fs.existsSync(statusFile)) {
+      const data = fs.readFileSync(statusFile, 'utf-8');
+      const statuses: PreviousStatus[] = JSON.parse(data);
+      statuses.forEach(s => statusMap.set(s.url, s));
+      console.log(`📂 Loaded previous status for ${statuses.length} server(s)`);
+    } else {
+      console.log('📂 No previous status file found (first run)');
+    }
+  } catch (error) {
+    console.log('⚠️  Error loading previous status, treating as first run');
+  }
+
+  return statusMap;
+}
+
+function savePreviousStatus(statuses: ServerStatus[]): void {
+  const statusFile = 'previous-status.json';
+  const previousStatuses: PreviousStatus[] = statuses.map(s => ({
+    url: s.url,
+    status: getServerStatusType(s),
+    timestamp: new Date().toISOString()
+  }));
+
+  try {
+    fs.writeFileSync(statusFile, JSON.stringify(previousStatuses, null, 2));
+    console.log(`💾 Saved current status for ${previousStatuses.length} server(s)`);
+  } catch (error) {
+    console.log('⚠️  Error saving status file');
+  }
+}
+
+function detectStatusChanges(currentStatuses: ServerStatus[], previousStatusMap: Map<string, PreviousStatus>): StatusChange[] {
+  const changes: StatusChange[] = [];
+
+  for (const current of currentStatuses) {
+    const previous = previousStatusMap.get(current.url);
+
+    if (!previous) {
+      // First time checking this server, skip
+      continue;
+    }
+
+    const currentStatus = getServerStatusType(current);
+
+    if (previous.status !== currentStatus) {
+      const change: StatusChange = {
+        url: current.url,
+        name: current.name || extractServerName(current.url),
+        previousStatus: previous.status,
+        currentStatus: currentStatus,
+        changeType: determineChangeType(previous.status, currentStatus)
+      };
+      changes.push(change);
+    }
+  }
+
+  return changes;
+}
+
+function determineChangeType(previous: string, current: string): 'improved' | 'degraded' | 'critical' {
+  // Critical: healthy/unhealthy -> down
+  if (current === 'down' && (previous === 'healthy' || previous === 'unhealthy')) {
+    return 'critical';
+  }
+
+  // Degraded: healthy -> unhealthy
+  if (previous === 'healthy' && current === 'unhealthy') {
+    return 'degraded';
+  }
+
+  // Improved: down/unhealthy -> healthy, or down -> unhealthy
+  return 'improved';
 }
 
 function generateModernHTMLReport(statuses: ServerStatus[]): string {
@@ -431,7 +530,7 @@ function generateModernHTMLReport(statuses: ServerStatus[]): string {
 </html>`;
 }
 
-async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[]) {
+async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[], changes: StatusChange[] = []) {
   const transportConfig: any = {
     auth: {
       user: config.user,
@@ -454,10 +553,21 @@ async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[
   const healthyServers = statuses.filter(s => s.isActive && s.statusCode && s.statusCode < 400);
 
   const hasIssues = downServers.length > 0 || unhealthyServers.length > 0;
+  const criticalChanges = changes.filter(c => c.changeType === 'critical');
+  const degradedChanges = changes.filter(c => c.changeType === 'degraded');
 
-  const subject = hasIssues
-    ? `🚨 Server Alert: ${downServers.length} Down, ${unhealthyServers.length} Unhealthy`
-    : `✅ All Servers Healthy (${healthyServers.length} servers)`;
+  let subject = '';
+  if (criticalChanges.length > 0) {
+    subject = `🚨 CRITICAL: ${criticalChanges.length} Server(s) Down!`;
+  } else if (degradedChanges.length > 0) {
+    subject = `⚠️ WARNING: ${degradedChanges.length} Server(s) Degraded`;
+  } else if (changes.length > 0) {
+    subject = `✅ Server Status Improved: ${changes.length} Change(s)`;
+  } else if (hasIssues) {
+    subject = `🚨 Server Alert: ${downServers.length} Down, ${unhealthyServers.length} Unhealthy`;
+  } else {
+    subject = `✅ All Servers Healthy (${healthyServers.length} servers)`;
+  }
 
   const generateServerRows = (servers: ServerStatus[], statusColor: string, statusLabel: string) => {
     return servers.map(s => `
@@ -486,6 +596,29 @@ async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[
             <strong>Timestamp:</strong> ${new Date().toLocaleString()}<br>
             <strong>Total Servers Monitored:</strong> ${statuses.length}
           </p>
+
+          ${changes.length > 0 ? `
+          <div style="background-color: ${criticalChanges.length > 0 ? '#ffebee' : degradedChanges.length > 0 ? '#fff3e0' : '#e8f5e9'}; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 5px solid ${criticalChanges.length > 0 ? '#f44336' : degradedChanges.length > 0 ? '#ff9800' : '#4caf50'};">
+            <h3 style="margin-top: 0; color: ${criticalChanges.length > 0 ? '#f44336' : degradedChanges.length > 0 ? '#ff9800' : '#4caf50'};">
+              🔔 Status Changes Detected (${changes.length})
+            </h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              ${changes.map(change => `
+                <tr style="border-bottom: 1px solid #e0e0e0;">
+                  <td style="padding: 12px 8px; color: #333; font-weight: bold;">${change.name}</td>
+                  <td style="padding: 12px 8px; color: #666;">
+                    <span style="background-color: #f5f5f5; padding: 4px 8px; border-radius: 3px;">${change.previousStatus}</span>
+                    →
+                    <span style="background-color: ${change.currentStatus === 'down' ? '#f44336' : change.currentStatus === 'unhealthy' ? '#ff9800' : '#4caf50'}; color: white; padding: 4px 8px; border-radius: 3px;">${change.currentStatus}</span>
+                  </td>
+                  <td style="padding: 12px 8px; text-align: right;">
+                    ${change.changeType === 'critical' ? '🚨 CRITICAL' : change.changeType === 'degraded' ? '⚠️ DEGRADED' : '✅ IMPROVED'}
+                  </td>
+                </tr>
+              `).join('')}
+            </table>
+          </div>
+          ` : ''}
 
           <div style="background-color: #f9f9f9; padding: 20px; border-radius: 5px; margin: 20px 0;">
             <h3 style="margin-top: 0; color: #333;">Summary</h3>
@@ -668,6 +801,7 @@ async function main() {
 
   const serverUrlsString = process.env.SERVER_URLS || 'http://20.7.146.191:3000/';
   const serverUrls = serverUrlsString.split(',').map(url => url.trim());
+  const sendOnlyOnChange = process.env.SEND_ONLY_ON_CHANGE === 'true';
 
   if (!emailConfig.user || !emailConfig.password || !emailConfig.to) {
     console.error('❌ Error: Email configuration is missing!');
@@ -679,7 +813,13 @@ async function main() {
   console.log(`   From: ${emailConfig.user}`);
   console.log(`   To: ${emailConfig.to}`);
   console.log(`   SMTP: ${emailConfig.host || emailConfig.service}`);
+  console.log(`   Mode: ${sendOnlyOnChange ? 'Send only on status change' : 'Send every check'}`);
   console.log('');
+
+  // Load previous status
+  const previousStatusMap = loadPreviousStatus();
+  console.log('');
+
   console.log(`🔍 Checking ${serverUrls.length} server(s)...\n`);
 
   const statuses: ServerStatus[] = [];
@@ -711,8 +851,38 @@ async function main() {
   console.log(`   🚨 Down: ${down}`);
   console.log('');
 
+  // Detect status changes
+  const changes = detectStatusChanges(statuses, previousStatusMap);
+
+  if (changes.length > 0) {
+    console.log('🔔 Status Changes Detected:');
+    changes.forEach(change => {
+      const icon = change.changeType === 'critical' ? '🚨' : change.changeType === 'degraded' ? '⚠️' : '✅';
+      console.log(`   ${icon} ${change.name}: ${change.previousStatus} → ${change.currentStatus}`);
+    });
+    console.log('');
+  } else {
+    console.log('✓ No status changes detected\n');
+  }
+
+  // Save current status for next run
+  savePreviousStatus(statuses);
+  console.log('');
+
+  // Send email based on mode
+  let shouldSendEmail = true;
+
+  if (sendOnlyOnChange) {
+    shouldSendEmail = changes.length > 0;
+    if (!shouldSendEmail) {
+      console.log('📧 No status changes - skipping email (send-only-on-change mode)');
+      console.log('✨ Check completed successfully!\n');
+      return;
+    }
+  }
+
   console.log('📧 Sending email report...');
-  const emailSent = await sendMultiServerEmail(emailConfig, statuses);
+  const emailSent = await sendMultiServerEmail(emailConfig, statuses, changes);
 
   if (emailSent) {
     console.log('✨ Email sent successfully!\n');
