@@ -746,9 +746,9 @@ async function sendMultiServerEmail(config: EmailConfig, statuses: ServerStatus[
   }
 }
 
-async function checkServerHealth(url: string): Promise<ServerStatus> {
+async function checkServerHealth(url: string, customName?: string): Promise<ServerStatus> {
   const context = await request.newContext();
-  const serverName = extractServerName(url);
+  const serverName = customName || extractServerName(url);
 
   try {
     const startTime = Date.now();
@@ -800,7 +800,17 @@ async function main() {
   };
 
   const serverUrlsString = process.env.SERVER_URLS || 'http://20.7.146.191:3000/';
-  const serverUrls = serverUrlsString.split(',').map(url => url.trim());
+
+  // Parse server URLs with optional custom names (format: URL|Name)
+  const serverEntries = serverUrlsString.split(',').map(entry => {
+    const trimmed = entry.trim();
+    const parts = trimmed.split('|');
+    return {
+      url: parts[0].trim(),
+      name: parts.length > 1 ? parts[1].trim() : undefined
+    };
+  });
+
   const sendOnlyOnChange = process.env.SEND_ONLY_ON_CHANGE === 'true';
 
   if (!emailConfig.user || !emailConfig.password || !emailConfig.to) {
@@ -821,13 +831,14 @@ async function main() {
   const previousStatusMap = loadPreviousStatus();
   console.log('');
 
-  console.log(`🔍 Checking ${serverUrls.length} server(s)...\n`);
+  console.log(`🔍 Checking ${serverEntries.length} server(s)...\n`);
 
   const statuses: ServerStatus[] = [];
 
-  for (const url of serverUrls) {
-    console.log(`Checking: ${url}`);
-    const status = await checkServerHealth(url);
+  for (const entry of serverEntries) {
+    const displayName = entry.name || entry.url;
+    console.log(`Checking: ${displayName}`);
+    const status = await checkServerHealth(entry.url, entry.name);
 
     if (status.isActive) {
       if (status.statusCode && status.statusCode >= 200 && status.statusCode < 400) {
