@@ -29,10 +29,10 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       - name: Download previous status
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: previous-status.json
-          key: server-status-${{ github.run_id }}
+          key: server-status-latest
           restore-keys: |
             server-status-
 
@@ -55,7 +55,14 @@ jobs:
         run: npm run check-multiple
         env:
           NODE_ENV: production
-      
+
+      - name: Save previous status
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: previous-status.json
+          key: server-status-latest
+
       - name: Upload logs (if any)
         if: always()
         uses: actions/upload-artifact@v4
